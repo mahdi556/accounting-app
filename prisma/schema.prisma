@@ -1,0 +1,194 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model AccountCategory {
+  id          Int         @id @default(autoincrement())
+  code        String      @unique @db.VarChar(10)
+  name        String      @db.VarChar(100)
+  type        AccountType
+  parentId    Int?
+  parent      AccountCategory? @relation("CategoryParent", fields: [parentId], references: [id])
+  children    AccountCategory[] @relation("CategoryParent")
+  subAccounts SubAccount[]
+  createdAt   DateTime    @default(now())
+  
+  @@map("account_categories")
+}
+
+model SubAccount {
+  id          Int         @id @default(autoincrement())
+  code        String      @unique @db.VarChar(15)
+  name        String      @db.VarChar(100)
+  categoryId  Int
+  category    AccountCategory @relation(fields: [categoryId], references: [id])
+  balance     Float       @default(0)
+  detailAccounts DetailAccount[]
+  voucherItems VoucherItem[]
+  
+  // روابط برای چک‌ها
+  drawerCheques Cheque[] @relation("ChequeDrawer")
+  payeeCheques Cheque[] @relation("ChequePayee")
+  
+  createdAt   DateTime    @default(now())
+  
+  @@map("sub_accounts")
+}
+
+model DetailAccount {
+  id          Int         @id @default(autoincrement())
+  code        String      @unique @db.VarChar(20)
+  name        String      @db.VarChar(100)
+  subAccountId Int
+  subAccount  SubAccount  @relation(fields: [subAccountId], references: [id])
+  balance     Float       @default(0)
+  
+  // ارتباط یک به یک با Person
+  person      Person?
+  
+  // روابط برای چک‌ها
+  drawerCheques Cheque[] @relation("ChequeDrawerDetail")
+  payeeCheques Cheque[] @relation("ChequePayeeDetail")
+  
+  voucherItems VoucherItem[]
+  createdAt   DateTime    @default(now())
+  
+  @@map("detail_accounts")
+}
+
+model Person {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(100)
+  type      PersonType
+  phone     String?  @db.VarChar(20)
+  email     String?  @db.VarChar(100)
+  address   String?
+  
+  // ارتباط یک به یک با DetailAccount
+  detailAccountId Int? @unique
+  detailAccount   DetailAccount? @relation(fields: [detailAccountId], references: [id], onDelete: SetNull)
+  
+  voucherItems VoucherItem[]
+  cheques   Cheque[]
+  createdAt DateTime @default(now())
+  
+  @@map("persons")
+}
+
+model Voucher {
+  id            Int           @id @default(autoincrement())
+  voucherNumber String        @unique @db.VarChar(20)
+  voucherDate   DateTime
+  description   String?
+  totalAmount   Float
+  createdBy     Int?
+  items         VoucherItem[]
+  cheques       Cheque[]
+  createdAt     DateTime      @default(now())
+  
+  @@map("vouchers")
+}
+
+model VoucherItem {
+  id            Int      @id @default(autoincrement())
+  voucherId     Int
+  voucher       Voucher  @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  subAccountId  Int?     // تغییر به optional
+  subAccount    SubAccount? @relation(fields: [subAccountId], references: [id])
+  detailAccountId Int?
+  detailAccount DetailAccount? @relation(fields: [detailAccountId], references: [id])
+  personId      Int?
+  person        Person?  @relation(fields: [personId], references: [id])
+  description   String?
+  debit         Float    @default(0)
+  credit        Float    @default(0)
+  
+  @@map("voucher_items")
+}
+
+model Cheque {
+  id          Int         @id @default(autoincrement())
+  chequeNumber String     @db.VarChar(50)
+  bankName    String      @db.VarChar(100)
+  branchName  String?     @db.VarChar(100)
+  amount      Float
+  issueDate   DateTime
+  dueDate     DateTime
+  drawer      String      @db.VarChar(100)
+  payee       String?     @db.VarChar(100)
+  type        ChequeType
+  status      ChequeStatus @default(pending)
+  description String?
+  
+  // برای چک دریافتنی: صادرکننده از حساب‌ها انتخاب می‌شود
+  drawerAccountId Int?
+  drawerAccount   SubAccount? @relation("ChequeDrawer", fields: [drawerAccountId], references: [id], onDelete: SetNull)
+  
+  // برای چک پرداختنی: گیرنده از حساب‌ها انتخاب می‌شود  
+  payeeAccountId Int?
+  payeeAccount   SubAccount? @relation("ChequePayee", fields: [payeeAccountId], references: [id], onDelete: SetNull)
+  
+  // برای حساب‌های تفصیلی
+  drawerDetailAccountId Int?
+  drawerDetailAccount   DetailAccount? @relation("ChequeDrawerDetail", fields: [drawerDetailAccountId], references: [id], onDelete: SetNull)
+  
+  payeeDetailAccountId Int?
+  payeeDetailAccount   DetailAccount? @relation("ChequePayeeDetail", fields: [payeeDetailAccountId], references: [id], onDelete: SetNull)
+  
+  // ارتباط با شخص
+  personId    Int?
+  person      Person?     @relation(fields: [personId], references: [id], onDelete: Cascade)
+  
+  // ارتباط با سند
+  voucherId   Int?
+  voucher     Voucher?    @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@map("cheques")
+}
+
+model Bank {
+  id            Int      @id @default(autoincrement())
+  name          String   @db.VarChar(100)
+  accountNumber String?  @db.VarChar(50)
+  balance       Float    @default(0)
+  createdAt     DateTime @default(now())
+  
+  @@map("banks")
+}
+
+enum AccountType {
+  asset
+  liability
+  equity
+  income
+  expense
+}
+
+enum PersonType {
+  customer
+  supplier
+  employee
+}
+
+enum ChequeType {
+  receivable
+  payable
+}
+
+enum ChequeStatus {
+  pending
+  collected
+  deposited
+  returned
+  canceled
+}
