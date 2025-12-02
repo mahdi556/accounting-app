@@ -1,22 +1,22 @@
-// src/app/api/detail-accounts/route.js
 import { NextResponse } from "next/server";
 import { prisma } from "@lib/prisma";
 
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
-    const include = searchParams.get('include');
-    
+    const include = searchParams.get("include");
+
+    // دریافت حساب‌های تفصیلی با اطلاعات حساب معین
     const detailAccounts = await prisma.detailAccount.findMany({
       include: {
         subAccount: {
           select: {
-            id: true, // اضافه کردن این خط
+            id: true,
             code: true,
             name: true,
             category: {
               select: {
-                id: true, // اضافه کردن این خط
+                id: true,
                 code: true,
                 name: true,
                 type: true,
@@ -37,7 +37,42 @@ export async function GET(request) {
       },
     });
 
-    return NextResponse.json(detailAccounts);
+    // محاسبه موجودی واقعی هر حساب تفصیلی از روی تراکنش‌ها
+    const accountsWithRealBalance = await Promise.all(
+      detailAccounts.map(async (account) => {
+        // جمع تمام بدهکارها و بستانکارهای این حساب تفصیلی
+        const voucherItems = await prisma.voucherItem.findMany({
+          where: {
+            detailAccountId: account.id,
+          },
+          select: {
+            debit: true,
+            credit: true,
+          },
+        });
+
+        // محاسبه موجودی واقعی
+        let realBalance = 0;
+        voucherItems.forEach((item) => {
+          realBalance += (item.debit || 0) - (item.credit || 0);
+        });
+
+        // همچنین مانده حساب معین والد را هم بررسی کنیم
+        const subAccountBalance = await prisma.subAccount.findUnique({
+          where: { id: account.subAccountId },
+          select: { balance: true },
+        });
+
+        return {
+          ...account,
+          balance: realBalance, // استفاده از موجودی محاسبه شده
+          storedBalance: account.balance, // موجودی ذخیره شده در دیتابیس
+          subAccountBalance: subAccountBalance?.balance || 0,
+        };
+      })
+    );
+
+    return NextResponse.json(accountsWithRealBalance);
   } catch (error) {
     console.error("Error in GET /api/detail-accounts:", error);
     return NextResponse.json(

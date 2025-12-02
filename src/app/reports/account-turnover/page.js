@@ -1,7 +1,6 @@
-// src/app/reports/account-turnover/page.js
 "use client";
 import { useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Container,
   Table,
@@ -14,115 +13,27 @@ import {
   Spinner,
   Badge,
 } from "react-bootstrap";
+// فرض بر این است که این کامپوننت‌ها و توابع در دسترس هستند
+import PersianDatePicker from "@components/ui/PersianDatePicker";
+import { PersianDate } from "@lib/persianDate";
 
 export default function AccountTurnoverPage() {
   const router = useRouter();
   const [accounts, setAccounts] = useState([]);
   const [filteredAccounts, setFilteredAccounts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // تغییر به false برای جلوگیری از اجرای اولیه قبل از تاریخ‌ها
   const [error, setError] = useState("");
   const [filters, setFilters] = useState({
-    startDate: new Date(new Date().getFullYear(), 0, 1)
-      .toISOString()
-      .split("T")[0],
-    endDate: new Date().toISOString().split("T")[0],
+    // تنظیم تاریخ شروع و پایان برای امروز به صورت پیش‌فرض
+    startDate: PersianDate.todayGregorian(),
+    endDate: PersianDate.todayGregorian(),
     accountType: "",
   });
 
-  useEffect(() => {
-    fetchAccountsWithTurnover();
-  }, []);
+  // برای جلوگیری از اجرای fetch در اولین رندر
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
 
-  useEffect(() => {
-    applyFilters();
-  }, [filters, accounts]);
-
-  const fetchAccountsWithTurnover = async () => {
-    try {
-      setLoading(true);
-      setError("");
-
-      console.log("📊 Fetching account turnover data...");
-      
-      const queryParams = new URLSearchParams({
-        startDate: filters.startDate,
-        endDate: filters.endDate
-      });
-
-      const response = await fetch(`/api/accounts/account-turnover?${queryParams}`);
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "خطا در دریافت اطلاعات گردش حساب‌ها");
-      }
-
-      const accountsData = await response.json();
-      console.log("📋 Received turnover data:", accountsData);
-
-      // بررسی داده‌های دریافتی
-      if (accountsData.length > 0) {
-        console.log("Sample turnover data:", accountsData[0]);
-        
-        // بررسی اینکه آیا داده‌های واقعی داریم
-        const hasData = accountsData.some(account => 
-          account.debitTurnover > 0 || account.creditTurnover > 0
-        );
-        
-        if (!hasData) {
-          console.warn("⚠️ No transaction data found in any account");
-        }
-      }
-
-      setAccounts(accountsData);
-      console.log("✅ Turnover data loaded successfully");
-    } catch (error) {
-      console.error("❌ Error fetching turnover data:", error);
-      setError(error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAccountClick = (accountId) => {
-    router.push(`/accounts/${accountId}`);
-  };
-
-  const applyFilters = () => {
-    let filtered = accounts;
-
-    // فیلتر بر اساس نوع حساب
-    if (filters.accountType) {
-      filtered = filtered.filter(
-        (account) => account.category.type === filters.accountType
-      );
-    }
-
-    setFilteredAccounts(filtered);
-    console.log(
-      `🔧 Applied filters: ${filtered.length} accounts after filtering`
-    );
-  };
-
-  const handleFilterChange = (field, value) => {
-    setFilters((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-  };
-
-  const handleResetFilters = () => {
-    setFilters({
-      startDate: new Date(new Date().getFullYear(), 0, 1)
-        .toISOString()
-        .split("T")[0],
-      endDate: new Date().toISOString().split("T")[0],
-      accountType: "",
-    });
-  };
-
-  const handleApplyDateFilter = () => {
-    fetchAccountsWithTurnover();
-  };
+  // ************ توابع کمکی ************
 
   const getTypeColor = (type) => {
     const colors = {
@@ -149,15 +60,23 @@ export default function AccountTurnoverPage() {
   const formatCurrency = (amount) => {
     if (amount === null || amount === undefined || isNaN(amount))
       return "۰ ریال";
+    // نمایش عدد به صورت محلی و مثبت
     return Math.abs(amount).toLocaleString("fa-IR") + " ریال";
   };
 
-  const getBalanceSign = (account) => {
-    const type = account.category.type;
-    if (type === "asset" || type === "expense") {
-      return account.finalBalance >= 0 ? "+" : "-";
-    } else {
-      return account.finalBalance >= 0 ? "+" : "-";
+  const handleAccountClick = (accountId) => {
+    router.push(`/accounts/${accountId}`);
+  };
+
+  const testDatabaseData = async () => {
+    try {
+      const response = await fetch("/api/debug/voucher-items"); // فرض بر وجود این مسیر
+      const data = await response.json();
+      console.log("🧪 Database test results:", data);
+      alert(`تست دیتابیس: ${data.message}\n\nجزئیات در کنسول مرورگر`);
+    } catch (error) {
+      console.error("Test failed:", error);
+      alert("خطا در تست دیتابیس");
     }
   };
 
@@ -166,25 +85,148 @@ export default function AccountTurnoverPage() {
       (totals, account) => {
         totals.debit += account.debitTurnover || 0;
         totals.credit += account.creditTurnover || 0;
-        totals.balance += account.finalBalance || 0;
+
+        // **محاسبه جمع کل مانده‌ها بر اساس ماهیت حساب**
+        // برای حساب‌های با ماهیت بدهکار (دارایی، هزینه)
+        if (
+          account.category?.type === "asset" ||
+          account.category?.type === "expense"
+        ) {
+          // مانده مثبت = بدهکار (به جمع اضافه شود)
+          // مانده منفی = بستانکار (از جمع کم شود)
+          totals.balance += account.finalBalance || 0;
+        }
+        // برای حساب‌های با ماهیت بستانکار (بدهی، سرمایه، درآمد)
+        else if (
+          account.category?.type === "liability" ||
+          account.category?.type === "equity" ||
+          account.category?.type === "income"
+        ) {
+          // مانده مثبت = بستانکار (از جمع کم شود چون بستانکار است)
+          // مانده منفی = بدهکار (به جمع اضافه شود چون بدهکار است)
+          totals.balance -= account.finalBalance || 0;
+        }
+
+        totals.transactionCount += account.transactionCount || 0;
         return totals;
       },
-      { debit: 0, credit: 0, balance: 0 }
+      { debit: 0, credit: 0, balance: 0, transactionCount: 0 }
     );
   };
 
-  // تابع برای تست داده‌های دیتابیس
-  const testDatabaseData = async () => {
-    try {
-      const response = await fetch('/api/debug/voucher-items');
-      const data = await response.json();
-      console.log('🧪 Database test results:', data);
-      alert(`تست دیتابیس: ${data.message}\n\nجزئیات در کنسول مرورگر`);
-    } catch (error) {
-      console.error('Test failed:', error);
-      alert('خطا در تست دیتابیس');
+  const getBalanceSign = (account) => {
+    // برای حساب‌های با ماهیت بدهکار
+    if (
+      account.category?.type === "asset" ||
+      account.category?.type === "expense"
+    ) {
+      // مانده مثبت = بدهکار، مانده منفی = بستانکار
+      return account.finalBalance >= 0 ? "بدهکار" : "بستانکار";
+    } else {
+      // برای حساب‌های با ماهیت بستانکار
+      // مانده مثبت = بستانکار، مانده منفی = بدهکار
+      return account.finalBalance >= 0 ? "بستانکار" : "بدهکار";
     }
   };
+  // ************ منطق اصلی (فچ و فیلتر) ************
+
+  const fetchAccountsWithTurnover = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      console.log("📊 Fetching account turnover data...");
+
+      // *** اصلاح: تنظیم دقیق تاریخ‌ها برای پوشش کامل روز (UTC) ***
+      const start = new Date(filters.startDate);
+      start.setUTCHours(0, 0, 0, 0);
+      const startDateISO = start.toISOString();
+
+      const end = new Date(filters.endDate);
+      end.setUTCHours(23, 59, 59, 999);
+      const endDateISO = end.toISOString();
+
+      const queryParams = new URLSearchParams({
+        startDate: startDateISO,
+        endDate: endDateISO,
+      });
+
+      // *** اصلاح: مسیر API به مسیر صحیح تغییر یافت ***
+      const response = await fetch(
+        `/api/reports/account-turnover?${queryParams}`
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(
+          errorData.error || "خطا در دریافت اطلاعات گردش حساب‌ها"
+        );
+      }
+
+      const accountsData = await response.json();
+      console.log("📋 Received turnover data:", accountsData);
+
+      setAccounts(accountsData);
+      console.log("✅ Turnover data loaded successfully");
+    } catch (error) {
+      console.error("❌ Error fetching turnover data:", error);
+      setError(error.message);
+      setAccounts([]); // در صورت خطا، لیست را خالی کنیم
+    } finally {
+      setLoading(false);
+    }
+  }, [filters.startDate, filters.endDate]); // وابستگی به تاریخ‌ها
+
+  const applyFilters = useCallback(() => {
+    let filtered = accounts;
+
+    // فیلتر بر اساس نوع حساب
+    if (filters.accountType) {
+      filtered = filtered.filter(
+        (account) => account.category?.type === filters.accountType
+      );
+    }
+
+    setFilteredAccounts(filtered);
+    console.log(
+      `🔧 Applied filters: ${filtered.length} accounts after filtering`
+    );
+  }, [filters.accountType, accounts]); // وابستگی به نوع حساب و لیست حساب‌ها
+
+  // اجرای fetch در اولین بارگذاری و هنگام تغییر تاریخ‌ها
+  useEffect(() => {
+    // اجرای اولیه فقط برای بارگذاری اولین دیتا
+    fetchAccountsWithTurnover();
+  }, [fetchAccountsWithTurnover]);
+
+  // اجرای فیلترها هنگام تغییر فیلترها یا داده‌های اصلی
+  useEffect(() => {
+    applyFilters();
+  }, [applyFilters]);
+
+  const handleFilterChange = (field, value) => {
+    setFilters((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+    // توجه: فیلتر accountType بلافاصله در useEffect بالا اعمال می‌شود.
+  };
+
+  const handleResetFilters = () => {
+    setFilters({
+      startDate: PersianDate.todayGregorian(),
+      endDate: PersianDate.todayGregorian(),
+      accountType: "",
+    });
+    // به محض تغییر تاریخ‌ها، fetchAccountsWithTurnover مجدداً اجرا می‌شود.
+  };
+
+  const handleApplyDateFilter = () => {
+    // با تغییر state، useEffect بالا مجدداً fetchAccountsWithTurnover را اجرا می‌کند
+    fetchAccountsWithTurnover();
+  };
+
+  // ************ بخش رندر (UI) ************
 
   if (loading) {
     return (
@@ -197,7 +239,10 @@ export default function AccountTurnoverPage() {
     );
   }
 
-  if (error) {
+  const totals = calculateTotals();
+
+  // در صورت وجود خطا، بخش خطا را نمایش می‌دهیم.
+  if (error && !loading) {
     return (
       <Container>
         <Alert variant="danger">
@@ -207,13 +252,11 @@ export default function AccountTurnoverPage() {
             <Button
               variant="outline-danger"
               onClick={fetchAccountsWithTurnover}
+              disabled={loading}
             >
               🔄 تلاش مجدد
             </Button>
-            <Button
-              variant="outline-warning"
-              onClick={testDatabaseData}
-            >
+            <Button variant="outline-warning" onClick={testDatabaseData}>
               🧪 تست دیتابیس
             </Button>
           </div>
@@ -222,7 +265,8 @@ export default function AccountTurnoverPage() {
     );
   }
 
-  const totals = calculateTotals();
+  // اگر بارگذاری انجام شده اما اطلاعاتی نیست (مثل وقتی که خطایی رخ داده بود و رفع شده، اما داده‌ای برنگشته)
+  // این شرط را می‌توان در بخش پایینی مدیریت کرد.
 
   return (
     <Container>
@@ -237,7 +281,11 @@ export default function AccountTurnoverPage() {
           <Button variant="outline-warning" onClick={testDatabaseData}>
             🧪 تست دیتابیس
           </Button>
-          <Button variant="outline-secondary" onClick={fetchAccountsWithTurnover}>
+          <Button
+            variant="outline-secondary"
+            onClick={fetchAccountsWithTurnover}
+            disabled={loading}
+          >
             🔄 بروزرسانی
           </Button>
         </div>
@@ -260,25 +308,32 @@ export default function AccountTurnoverPage() {
             <Col md={3}>
               <Form.Group className="mb-3">
                 <Form.Label>از تاریخ</Form.Label>
-                <Form.Control
-                  type="date"
-                  value={filters.startDate}
-                  onChange={(e) =>
-                    handleFilterChange("startDate", e.target.value)
-                  }
+                <PersianDatePicker
+                  selected={filters.startDate}
+                  onChange={(date) => handleFilterChange("startDate", date)}
+                  placeholder="از تاریخ"
+                  maxDate={filters.endDate}
+                  className="w-100"
                 />
+                <Form.Text className="text-muted">
+                  {PersianDate.toPersian(filters.startDate)}
+                </Form.Text>
               </Form.Group>
             </Col>
             <Col md={3}>
               <Form.Group className="mb-3">
                 <Form.Label>تا تاریخ</Form.Label>
-                <Form.Control
-                  type="date"
-                  value={filters.endDate}
-                  onChange={(e) =>
-                    handleFilterChange("endDate", e.target.value)
-                  }
+                <PersianDatePicker
+                  selected={filters.endDate}
+                  onChange={(date) => handleFilterChange("endDate", date)}
+                  placeholder="تا تاریخ"
+                  minDate={filters.startDate}
+                  maxDate={new Date()}
+                  className="w-100"
                 />
+                <Form.Text className="text-muted">
+                  {PersianDate.toPersian(filters.endDate)}
+                </Form.Text>
               </Form.Group>
             </Col>
             <Col md={3}>
@@ -304,6 +359,7 @@ export default function AccountTurnoverPage() {
                 variant="primary"
                 onClick={handleApplyDateFilter}
                 className="w-100"
+                disabled={loading}
               >
                 🔍 اعمال فیلتر تاریخ
               </Button>
@@ -359,6 +415,7 @@ export default function AccountTurnoverPage() {
               <div className="fs-4">⚖️</div>
               <Card.Title className="h6">مانده کل</Card.Title>
               <Card.Text className="h5">
+                {totals.balance >= 0 ? "+" : "-"}{" "}
                 {formatCurrency(totals.balance)}
               </Card.Text>
             </Card.Body>
@@ -376,7 +433,7 @@ export default function AccountTurnoverPage() {
             </Badge>
           </h5>
           <small className="text-muted">
-            تاریخ گزارش: {new Date().toLocaleDateString("fa-IR")}
+            تاریخ گزارش: {PersianDate.toPersian(new Date())}
           </small>
         </Card.Header>
         <Card.Body className="p-0">
@@ -397,8 +454,8 @@ export default function AccountTurnoverPage() {
                     <th width="120" className="text-center">
                       گردش بستانکار
                     </th>
-                    <th width="120" className="text-center">
-                      مانده akhir
+                    <th width="140" className="text-center">
+                      مانده نهایی (ب/ب)
                     </th>
                     <th width="80" className="text-center">
                       تراکنش
@@ -431,22 +488,31 @@ export default function AccountTurnoverPage() {
                           }}
                         >
                           <span className="me-2">
-                            {account.category.type === "asset" && "💰"}
-                            {account.category.type === "liability" && "📋"}
-                            {account.category.type === "equity" && "🏛️"}
-                            {account.category.type === "income" && "📈"}
-                            {account.category.type === "expense" && "📉"}
+                            {account.category?.type === "asset" && "💰"}
+                            {account.category?.type === "liability" && "📋"}
+                            {account.category?.type === "equity" && "🏛️"}
+                            {account.category?.type === "income" && "📈"}
+                            {account.category?.type === "expense" && "📉"}
                           </span>
                           {account.name}
+                          {account.hasDetailAccounts && (
+                            <Badge
+                              bg="info"
+                              className="ms-2"
+                              title="دارای حساب تفصیلی"
+                            >
+                              تفصیلی
+                            </Badge>
+                          )}
                         </div>
                       </td>
                       <td>
                         <span
                           className={`badge bg-${getTypeColor(
-                            account.category.type
+                            account.category?.type
                           )}`}
                         >
-                          {getTypeLabel(account.category.type)}
+                          {getTypeLabel(account.category?.type)}
                         </span>
                       </td>
                       <td className="text-center text-muted">
@@ -458,14 +524,24 @@ export default function AccountTurnoverPage() {
                       <td className="text-center text-danger fw-bold">
                         {formatCurrency(account.creditTurnover || 0)}
                       </td>
+                      {/* نمایش مانده نهایی با علامت (بدهکار/بستانکار) */}
                       <td
                         className={`text-center fw-bold ${
                           (account.finalBalance || 0) >= 0
-                            ? "text-success"
-                            : "text-danger"
+                            ? "text-success" // معمولاً مانده موافق ماهیت حساب با رنگ مثبت نشان داده می‌شود
+                            : "text-danger" // مانده مخالف ماهیت حساب با رنگ منفی نشان داده می‌شود
                         }`}
                       >
-                        {getBalanceSign(account)}{" "}
+                        <Badge
+                          bg={
+                            getBalanceSign(account) === "بدهکار"
+                              ? "success"
+                              : "danger"
+                          }
+                          className="me-1"
+                        >
+                          {getBalanceSign(account)}
+                        </Badge>
                         {formatCurrency(account.finalBalance || 0)}
                       </td>
                       <td className="text-center">
@@ -494,12 +570,13 @@ export default function AccountTurnoverPage() {
                     <td className="text-center text-danger fw-bold">
                       {formatCurrency(totals.credit)}
                     </td>
+                    {/* نمایش جمع مانده کل */}
                     <td
                       className={`text-center fw-bold ${
                         totals.balance >= 0 ? "text-success" : "text-danger"
                       }`}
                     >
-                      {totals.balance >= 0 ? "+" : "-"}{" "}
+                      {totals.balance >= 0 ? "بدهکار" : "بستانکار"}{" "}
                       {formatCurrency(totals.balance)}
                     </td>
                     <td></td>

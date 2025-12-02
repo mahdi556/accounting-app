@@ -1,0 +1,44 @@
+/* src/styles/print.css */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  
+  .print-container,
+  .print-container * {
+    visibility: visible;
+  }
+  
+  .print-container {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  
+  .no-print {
+    display: none !important;
+  }
+  
+  .voucher-print {
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+}
+
+/* استایل‌های فارسی برای پرینت */
+.voucher-print {
+  font-family: 'Tahoma', 'Arial', sans-serif;
+  direction: rtl;
+  line-height: 1.5;
+}
+
+.voucher-table {
+  font-size: 11px;
+}
+
+.amount {
+  font-family: 'Courier New', monospace;
+  font-weight: bold;
+}

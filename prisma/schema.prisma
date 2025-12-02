@@ -9,86 +9,100 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ==========================================================
+// مدل‌های اصلی
+// ==========================================================
+
+// ۱. حساب کل (AccountCategory)
 model AccountCategory {
-  id          Int         @id @default(autoincrement())
-  code        String      @unique @db.VarChar(10)
-  name        String      @db.VarChar(100)
-  type        AccountType
-  parentId    Int?
-  parent      AccountCategory? @relation("CategoryParent", fields: [parentId], references: [id])
-  children    AccountCategory[] @relation("CategoryParent")
-  subAccounts SubAccount[]
-  createdAt   DateTime    @default(now())
+  id            Int               @id @default(autoincrement())
+  code          String            @unique @db.VarChar(10)
+  name          String            @db.VarChar(100)
+  type          AccountType       // دارایی، بدهی، سرمایه، درآمد، هزینه
+  parentId      Int?
+  parent        AccountCategory?  @relation("CategoryParent", fields: [parentId], references: [id])
+  children      AccountCategory[] @relation("CategoryParent")
+  subAccounts   SubAccount[]
+  createdAt     DateTime          @default(now())
   
   @@map("account_categories")
 }
 
+// ۲. حساب معین (SubAccount)
 model SubAccount {
-  id          Int         @id @default(autoincrement())
-  code        String      @unique @db.VarChar(15)
-  name        String      @db.VarChar(100)
-  categoryId  Int
-  category    AccountCategory @relation(fields: [categoryId], references: [id])
-  balance     Float       @default(0)
+  id             Int             @id @default(autoincrement())
+  code           String          @unique @db.VarChar(15)
+  name           String          @db.VarChar(100)
+  categoryId     Int
+  category       AccountCategory @relation(fields: [categoryId], references: [id])
+  balance        Float           @default(0)
+  
   detailAccounts DetailAccount[]
-  voucherItems VoucherItem[]
+  voucherItems   VoucherItem[]
   
-  // روابط برای چک‌ها
-  drawerCheques Cheque[] @relation("ChequeDrawer")
-  payeeCheques Cheque[] @relation("ChequePayee")
+  // روابط چک‌ها
+  drawerCheques  Cheque[]        @relation("ChequeDrawer")  // چک دریافتنی از این حساب صادر شده است
+  payeeCheques   Cheque[]        @relation("ChequePayee")   // چک پرداختنی به این حساب داده شده است
   
-  createdAt   DateTime    @default(now())
+  createdAt      DateTime        @default(now())
   
   @@map("sub_accounts")
 }
 
+// ۳. حساب تفصیلی (DetailAccount)
 model DetailAccount {
-  id          Int         @id @default(autoincrement())
-  code        String      @unique @db.VarChar(20)
-  name        String      @db.VarChar(100)
-  subAccountId Int
-  subAccount  SubAccount  @relation(fields: [subAccountId], references: [id])
-  balance     Float       @default(0)
+  id                Int             @id @default(autoincrement())
+  code              String          @unique @db.VarChar(20)
+  name              String          @db.VarChar(100)
+  subAccountId      Int
+  subAccount        SubAccount      @relation(fields: [subAccountId], references: [id])
+  balance           Float           @default(0)
   
   // ارتباط یک به یک با Person
-  person      Person?
+  person            Person?
   
-  // روابط برای چک‌ها
-  drawerCheques Cheque[] @relation("ChequeDrawerDetail")
-  payeeCheques Cheque[] @relation("ChequePayeeDetail")
+  // روابط چک‌ها
+  drawerCheques     Cheque[]        @relation("ChequeDrawerDetail")  // تفصیلی صادرکننده
+  payeeCheques      Cheque[]        @relation("ChequePayeeDetail")   // تفصیلی گیرنده
   
-  voucherItems VoucherItem[]
-  createdAt   DateTime    @default(now())
+  // 🎯 روابط جدید مورد نیاز برای چک
+  expenseCheques    Cheque[]        @relation("ChequeExpenseDetail") // تفصیلی هزینه/خرید
+  bankCheques       Cheque[]        @relation("ChequeBankDetail")    // تفصیلی حساب بانک
+  
+  voucherItems      VoucherItem[]
+  createdAt         DateTime        @default(now())
   
   @@map("detail_accounts")
 }
 
+// ۴. شخص (طرف حساب)
 model Person {
-  id        Int      @id @default(autoincrement())
-  name      String   @db.VarChar(100)
-  type      PersonType
-  phone     String?  @db.VarChar(20)
-  email     String?  @db.VarChar(100)
-  address   String?
+  id                Int              @id @default(autoincrement())
+  name              String           @db.VarChar(100)
+  type              PersonType       // مشتری، تامین کننده، کارمند
+  phone             String?          @db.VarChar(20)
+  email             String?          @db.VarChar(100)
+  address           String?
   
-  // ارتباط یک به یک با DetailAccount
-  detailAccountId Int? @unique
-  detailAccount   DetailAccount? @relation(fields: [detailAccountId], references: [id], onDelete: SetNull)
+  // ارتباط یک به یک با DetailAccount (اختیاری)
+  detailAccountId   Int?             @unique
+  detailAccount     DetailAccount?   @relation(fields: [detailAccountId], references: [id], onDelete: SetNull)
   
-  voucherItems VoucherItem[]
-  cheques   Cheque[]
-  createdAt DateTime @default(now())
+  voucherItems      VoucherItem[]
+  cheques           Cheque[]
+  createdAt         DateTime         @default(now())
   
   @@map("persons")
 }
 
+// ۵. سند حسابداری (Voucher)
 model Voucher {
   id            Int           @id @default(autoincrement())
   voucherNumber String        @unique @db.VarChar(20)
   voucherDate   DateTime
   description   String?
   totalAmount   Float
-  createdBy     Int?
+  createdBy     Int?          // User ID
   items         VoucherItem[]
   cheques       Cheque[]
   createdAt     DateTime      @default(now())
@@ -96,99 +110,114 @@ model Voucher {
   @@map("vouchers")
 }
 
+// ۶. ردیف سند (VoucherItem)
 model VoucherItem {
-  id            Int      @id @default(autoincrement())
-  voucherId     Int
-  voucher       Voucher  @relation(fields: [voucherId], references: [id], onDelete: Cascade)
-  subAccountId  Int?     // تغییر به optional
-  subAccount    SubAccount? @relation(fields: [subAccountId], references: [id])
-  detailAccountId Int?
-  detailAccount DetailAccount? @relation(fields: [detailAccountId], references: [id])
-  personId      Int?
-  person        Person?  @relation(fields: [personId], references: [id])
-  description   String?
-  debit         Float    @default(0)
-  credit        Float    @default(0)
+  id                Int            @id @default(autoincrement())
+  voucherId         Int
+  voucher           Voucher        @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  subAccountId      Int?
+  subAccount        SubAccount?    @relation(fields: [subAccountId], references: [id])
+  detailAccountId   Int?
+  detailAccount     DetailAccount? @relation(fields: [detailAccountId], references: [id])
+  personId          Int?
+  person            Person?        @relation(fields: [personId], references: [id])
+  description       String?
+  debit             Float          @default(0)
+  credit            Float          @default(0)
   
   @@map("voucher_items")
 }
 
+// ۷. چک (Cheque)
 model Cheque {
-  id          Int         @id @default(autoincrement())
-  chequeNumber String     @db.VarChar(50)
-  bankName    String      @db.VarChar(100)
-  branchName  String?     @db.VarChar(100)
-  amount      Float
-  issueDate   DateTime
-  dueDate     DateTime
-  drawer      String      @db.VarChar(100)
-  payee       String?     @db.VarChar(100)
-  type        ChequeType
-  status      ChequeStatus @default(pending)
-  description String?
-  
-  // برای چک دریافتنی: صادرکننده از حساب‌ها انتخاب می‌شود
-  drawerAccountId Int?
-  drawerAccount   SubAccount? @relation("ChequeDrawer", fields: [drawerAccountId], references: [id], onDelete: SetNull)
-  
-  // برای چک پرداختنی: گیرنده از حساب‌ها انتخاب می‌شود  
-  payeeAccountId Int?
-  payeeAccount   SubAccount? @relation("ChequePayee", fields: [payeeAccountId], references: [id], onDelete: SetNull)
-  
-  // برای حساب‌های تفصیلی
-  drawerDetailAccountId Int?
-  drawerDetailAccount   DetailAccount? @relation("ChequeDrawerDetail", fields: [drawerDetailAccountId], references: [id], onDelete: SetNull)
-  
-  payeeDetailAccountId Int?
-  payeeDetailAccount   DetailAccount? @relation("ChequePayeeDetail", fields: [payeeDetailAccountId], references: [id], onDelete: SetNull)
-  
-  // ارتباط با شخص
-  personId    Int?
-  person      Person?     @relation(fields: [personId], references: [id], onDelete: Cascade)
-  
-  // ارتباط با سند
-  voucherId   Int?
-  voucher     Voucher?    @relation(fields: [voucherId], references: [id], onDelete: Cascade)
-  
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id                     Int             @id @default(autoincrement())
+  chequeNumber           String          @db.VarChar(50)
+  bankName               String          @db.VarChar(100)
+  branchName             String?         @db.VarChar(100)
+  amount                 Float
+  issueDate              DateTime
+  dueDate                DateTime
+  drawer                 String          @db.VarChar(100) // نام صادرکننده
+  payee                  String?         @db.VarChar(100)  // نام گیرنده
+  type                   ChequeType      // دریافتنی یا پرداختنی
+  status                 ChequeStatus    @default(pending)
+  description            String?
+  issueReason            String?         @db.VarChar(20) // 'settlement' یا 'expense'
 
+  // حساب‌های معین مرتبط (اختیاری)
+  drawerAccountId        Int?
+  drawerAccount          SubAccount?     @relation("ChequeDrawer", fields: [drawerAccountId], references: [id], onDelete: SetNull)
+  
+  payeeAccountId         Int?
+  payeeAccount           SubAccount?     @relation("ChequePayee", fields: [payeeAccountId], references: [id], onDelete: SetNull)
+
+  // حساب‌های تفصیلی مرتبط (اختیاری)
+  drawerDetailAccountId  Int?
+  drawerDetailAccount    DetailAccount?  @relation("ChequeDrawerDetail", fields: [drawerDetailAccountId], references: [id], onDelete: SetNull)
+  
+  payeeDetailAccountId   Int?
+  payeeDetailAccount     DetailAccount?  @relation("ChequePayeeDetail", fields: [payeeDetailAccountId], references: [id], onDelete: SetNull)
+  
+  // 🎯 روابط تفصیلی جدید برای منطق حسابداری
+  bankDetailAccountId    Int?
+  bankDetailAccount      DetailAccount?  @relation("ChequeBankDetail", fields: [bankDetailAccountId], references: [id], onDelete: SetNull) // حساب بانک برای پیگیری وصول
+  
+  expenseDetailAccountId Int?
+  expenseDetailAccount   DetailAccount?  @relation("ChequeExpenseDetail", fields: [expenseDetailAccountId], references: [id], onDelete: SetNull) // حساب هزینه/خرید برای سند ۴ ردیفی
+
+  // ارتباط با شخص (صادرکننده/گیرنده اصلی از لیست اشخاص)
+  personId               Int?
+  person                 Person?         @relation(fields: [personId], references: [id], onDelete: Cascade)
+  
+  // ارتباط با سند حسابداری
+  voucherId              Int?
+  voucher                Voucher?        @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+
+  @@unique([chequeNumber, type]) // شماره چک و نوع آن با هم یکتا هستند
   @@map("cheques")
 }
 
+// ۸. بانک (Bank) - صرفاً برای نگهداری اطلاعات کلی بانک‌ها
 model Bank {
-  id            Int      @id @default(autoincrement())
-  name          String   @db.VarChar(100)
-  accountNumber String?  @db.VarChar(50)
-  balance       Float    @default(0)
-  createdAt     DateTime @default(now())
+  id              Int       @id @default(autoincrement())
+  name            String    @db.VarChar(100)
+  accountNumber   String?   @db.VarChar(50)
+  balance         Float     @default(0)
+  createdAt       DateTime  @default(now())
   
   @@map("banks")
 }
 
+// ==========================================================
+// Enumها
+// ==========================================================
+
 enum AccountType {
-  asset
-  liability
-  equity
-  income
-  expense
+  asset     // دارایی
+  liability // بدهی
+  equity    // سرمایه
+  income    // درآمد
+  expense   // هزینه
 }
 
 enum PersonType {
-  customer
-  supplier
-  employee
+  customer  // مشتری
+  supplier  // تامین کننده
+  employee  // کارمند
 }
 
 enum ChequeType {
-  receivable
-  payable
+  receivable // دریافتنی
+  payable    // پرداختنی
 }
 
 enum ChequeStatus {
-  pending
-  collected
-  deposited
-  returned
-  canceled
+  pending   // در انتظار
+  collected // وصول شده (برای دریافتنی) یا پاس شده (برای پرداختنی)
+  deposited // در جریان وصول
+  returned  // برگشت خورده
+  canceled  // باطل شده
 }
