@@ -31,11 +31,11 @@ export default function ProductionConsumptionPage() {
         const data = await response.json();
         setWarehouses(data.warehouses || []);
       } else {
-        console.error('Failed to fetch warehouses:', response.status);
+        console.error("Failed to fetch warehouses:", response.status);
         setWarehouses([]);
       }
     } catch (error) {
-      console.error('Error fetching warehouses:', error);
+      console.error("Error fetching warehouses:", error);
       setWarehouses([]);
     }
   };
@@ -47,11 +47,11 @@ export default function ProductionConsumptionPage() {
         const data = await response.json();
         setProducts(data.products || []);
       } else {
-        console.error('Failed to fetch products:', response.status);
+        console.error("Failed to fetch products:", response.status);
         setProducts([]);
       }
     } catch (error) {
-      console.error('Error fetching products:', error);
+      console.error("Error fetching products:", error);
       setProducts([]);
     }
   };
@@ -67,32 +67,52 @@ export default function ProductionConsumptionPage() {
     setLoading(true);
 
     try {
+      // آماده‌سازی داده‌ها با تبدیل به عدد
+      const rawMaterials = formData.materials.map((material) => {
+        const productId = parseInt(material.productId);
+        const product = products.find((p) => p.id === productId);
+
+        return {
+          productId: productId,
+          productName: product?.name || `کالا ${productId}`,
+          quantity: parseFloat(material.quantity),
+          unitPrice: parseFloat(material.unitPrice),
+          description: material.description || "",
+        };
+      });
+
+      const payload = {
+        productionOrderId: formData.productionOrderId,
+        warehouseId: parseInt(formData.warehouseId),
+        productId: parseInt(formData.productId),
+        rawMaterials: rawMaterials,
+        description: formData.description,
+        createVoucher: true,
+      };
+
+      console.log("Sending payload:", payload); // برای دیباگ
+
       const response = await fetch(
         "/api/inventory/documents/production-consumption",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            productionOrderId: formData.productionOrderId,
-            warehouseId: parseInt(formData.warehouseId),
-            productId: parseInt(formData.productId),
-            rawMaterials: formData.materials,
-            description: formData.description,
-            createVoucher: true,
-          }),
+          body: JSON.stringify(payload),
         }
       );
+
+      const result = await response.json();
 
       if (response.ok) {
         alert("مصرف تولید با موفقیت ثبت شد");
         router.push("/inventory/documents");
       } else {
-        const error = await response.json();
-        alert(error.error || "خطا در ثبت مصرف تولید");
+        console.error("API Error:", result);
+        alert(result.error || result.message || "خطا در ثبت مصرف تولید");
       }
     } catch (error) {
-      console.error("Error:", error);
-      alert("خطا در ثبت مصرف تولید");
+      console.error("Network Error:", error);
+      alert("خطا در ارتباط با سرور");
     } finally {
       setLoading(false);
     }

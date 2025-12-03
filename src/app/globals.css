@@ -421,3 +421,16 @@ body.dropdown-open {
 .autocomplete-item.active {
   background-color: #f0f6ff !important;
 }
+/* در صورت نیاز، به globals.css اضافه کنید */
+.table th {
+  font-weight: 600;
+  background-color: #f8f9fa;
+}
+
+.table-hover tbody tr:hover {
+  background-color: rgba(0, 123, 255, 0.075);
+}
+
+.badge-success { background-color: #28a745; }
+.badge-danger { background-color: #dc3545; }
+.badge-secondary { background-color: #6c757d; }

@@ -329,7 +329,7 @@ model StockItem {
 // ۱۵. نوع حرکت انبار (InventoryTransactionType)
 model InventoryTransactionType {
   id              Int               @id @default(autoincrement())
-  code            String            @unique @db.VarChar(10)
+  code            String            @unique @db.VarChar(20)
   name            String            @db.VarChar(100)
   effect          InventoryEffect
   description     String?

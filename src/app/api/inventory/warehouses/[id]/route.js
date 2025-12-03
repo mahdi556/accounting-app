@@ -1,21 +1,46 @@
+// src/app/api/inventory/warehouses/[id]/route.js
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma'
+
 // GET: دریافت اطلاعات انبار
 export async function GET(request, { params }) {
   try {
-    const id = parseInt(params.id);
+    // دریافت params با await
+    const { id } = await params;
+    const warehouseId = parseInt(id);
+    
+    console.log('Fetching warehouse ID:', warehouseId);
+    
+    if (isNaN(warehouseId)) {
+      return NextResponse.json(
+        { success: false, error: 'شناسه انبار نامعتبر است' },
+        { status: 400 }
+      );
+    }
     
     const warehouse = await prisma.warehouse.findUnique({
-      where: { id },
+      where: { id: warehouseId },
       include: {
-        detailAccount: true,
+        detailAccount: {
+          include: {
+            subAccount: true
+          }
+        },
         stockItems: {
           include: {
             product: {
               include: {
-                unit: true
+                unit: true,
+                category: true
               }
             }
+          }
+        },
+        inventoryDocuments: {
+          take: 10,
+          orderBy: { documentDate: 'desc' },
+          include: {
+            type: true
           }
         }
       }
@@ -23,17 +48,42 @@ export async function GET(request, { params }) {
     
     if (!warehouse) {
       return NextResponse.json(
-        { error: 'انبار یافت نشد' },
+        { success: false, error: 'انبار یافت نشد' },
         { status: 404 }
       );
     }
     
-    return NextResponse.json(warehouse);
+    // محاسبه آمار انبار
+    const totalStockValue = warehouse.stockItems.reduce(
+      (sum, item) => sum + (item.quantity * (item.product?.defaultPurchasePrice || 0)), 
+      0
+    );
+    
+    const totalProducts = warehouse.stockItems.length;
+    const lowStockCount = warehouse.stockItems.filter(
+      item => item.quantity <= (item.product?.minStock || 0)
+    ).length;
+    
+    return NextResponse.json({
+      success: true,
+      data: {
+        ...warehouse,
+        stats: {
+          totalStockValue,
+          totalProducts,
+          lowStockCount
+        }
+      }
+    });
     
   } catch (error) {
     console.error('Error fetching warehouse:', error);
     return NextResponse.json(
-      { error: 'خطا در دریافت اطلاعات انبار' },
+      { 
+        success: false, 
+        error: 'خطا در دریافت اطلاعات انبار',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      },
       { status: 500 }
     );
   }
@@ -42,17 +92,27 @@ export async function GET(request, { params }) {
 // PUT: ویرایش انبار
 export async function PUT(request, { params }) {
   try {
-    const id = parseInt(params.id);
+    // دریافت params با await
+    const { id } = await params;
+    const warehouseId = parseInt(id);
+    
+    if (isNaN(warehouseId)) {
+      return NextResponse.json(
+        { success: false, error: 'شناسه انبار نامعتبر است' },
+        { status: 400 }
+      );
+    }
+    
     const data = await request.json();
     
     // بررسی وجود انبار
     const existingWarehouse = await prisma.warehouse.findUnique({
-      where: { id }
+      where: { id: warehouseId }
     });
     
     if (!existingWarehouse) {
       return NextResponse.json(
-        { error: 'انبار یافت نشد' },
+        { success: false, error: 'انبار یافت نشد' },
         { status: 404 }
       );
     }
@@ -65,7 +125,7 @@ export async function PUT(request, { params }) {
       
       if (duplicate) {
         return NextResponse.json(
-          { error: 'کد انبار تکراری است' },
+          { success: false, error: 'کد انبار تکراری است' },
           { status: 400 }
         );
       }
@@ -73,7 +133,7 @@ export async function PUT(request, { params }) {
     
     // ویرایش انبار
     const warehouse = await prisma.warehouse.update({
-      where: { id },
+      where: { id: warehouseId },
       data: {
         code: data.code,
         name: data.name,
@@ -88,12 +148,20 @@ export async function PUT(request, { params }) {
       }
     });
     
-    return NextResponse.json(warehouse);
+    return NextResponse.json({
+      success: true,
+      message: 'انبار با موفقیت ویرایش شد',
+      data: warehouse
+    });
     
   } catch (error) {
     console.error('Error updating warehouse:', error);
     return NextResponse.json(
-      { error: 'خطا در ویرایش انبار' },
+      { 
+        success: false, 
+        error: 'خطا در ویرایش انبار',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      },
       { status: 500 }
     );
   }
@@ -102,11 +170,20 @@ export async function PUT(request, { params }) {
 // DELETE: حذف انبار
 export async function DELETE(request, { params }) {
   try {
-    const id = parseInt(params.id);
+    // دریافت params با await
+    const { id } = await params;
+    const warehouseId = parseInt(id);
+    
+    if (isNaN(warehouseId)) {
+      return NextResponse.json(
+        { success: false, error: 'شناسه انبار نامعتبر است' },
+        { status: 400 }
+      );
+    }
     
     // بررسی وجود انبار
     const warehouse = await prisma.warehouse.findUnique({
-      where: { id },
+      where: { id: warehouseId },
       include: {
         inventoryDocuments: true,
         stockItems: true
@@ -115,7 +192,7 @@ export async function DELETE(request, { params }) {
     
     if (!warehouse) {
       return NextResponse.json(
-        { error: 'انبار یافت نشد' },
+        { success: false, error: 'انبار یافت نشد' },
         { status: 404 }
       );
     }
@@ -123,22 +200,32 @@ export async function DELETE(request, { params }) {
     // بررسی اینکه انبار در اسناد استفاده نشده باشد
     if (warehouse.inventoryDocuments.length > 0) {
       return NextResponse.json(
-        { error: 'امکان حذف انبار به دلیل وجود اسناد مرتبط وجود ندارد' },
+        { 
+          success: false, 
+          error: 'امکان حذف انبار به دلیل وجود اسناد مرتبط وجود ندارد' 
+        },
         { status: 400 }
       );
     }
     
-    // حذف انبار (stockItems به صورت cascade حذف می‌شوند)
+    // حذف انبار
     await prisma.warehouse.delete({
-      where: { id }
+      where: { id: warehouseId }
     });
     
-    return NextResponse.json({ message: 'انبار با موفقیت حذف شد' });
+    return NextResponse.json({ 
+      success: true, 
+      message: 'انبار با موفقیت حذف شد' 
+    });
     
   } catch (error) {
     console.error('Error deleting warehouse:', error);
     return NextResponse.json(
-      { error: 'خطا در حذف انبار' },
+      { 
+        success: false, 
+        error: 'خطا در حذف انبار',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      },
       { status: 500 }
     );
   }
