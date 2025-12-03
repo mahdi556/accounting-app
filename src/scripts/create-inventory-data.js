@@ -1,5 +1,5 @@
 // src/scripts/create-inventory-data.js
-import { prisma } from '@/lib/prisma'
+const { prisma } = require('../lib/prisma.js')
 
 async function createInventoryData() {
   try {
@@ -217,4 +217,4 @@ if (require.main === module) {
   createInventoryData()
 }
 
-export { createInventoryData }
+module.exports = { createInventoryData }
